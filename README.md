@@ -1,90 +1,66 @@
-- 👋 Hi, I’m @Venom18181818
-- 👀 I’m interested in ...
-- 🌱 I’m currently learning ...
-- 💞️ I’m lookin!---
-Venom18181818/Venom18181818 is a ✨ special ✨ repository because its `README.md` (this file) appears on your GitHub profile.
-You can click the Preview link to take a look at your changes.
---->
-
-
-
-
+import streamlit as st
+import nbformat
+from nbconvert import PythonExporter
+import subprocess
+import tempfile
 import os
-import json
-import pandas as pd
-from textblob import TextBlob
-import matplotlib.pyplot as plt
 
-# Path to the folder containing JSON files
-data_folder = "/path/to/your/data/folder"
+# Title
+st.title("File Upload and Notebook Execution")
 
-# List to store conversation data
-conversations = []
+# File uploader
+uploaded_file = st.file_uploader(
+    "Upload your file (only .txt or .json allowed)", 
+    type=["txt", "json"]
+)
 
-# Read all JSON files in the folder
-for file_name in os.listdir(data_folder):
-    if file_name.endswith(".json"):
-        file_path = os.path.join(data_folder, file_name)
-        with open(file_path, 'r', encoding='utf-8') as file:
-            data = json.load(file)
-            conversations.append(data)
+# Run button
+if st.button("Run"):
+    if uploaded_file:
+        # Save uploaded file temporarily
+        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_file.name)[1]) as temp_file:
+            temp_file.write(uploaded_file.read())
+            uploaded_file_path = temp_file.name
+        
+        st.success(f"File uploaded successfully: {uploaded_file.name}")
+        
+        # Execute the Jupyter notebook (test.ipynb)
+        notebook_path = "test.ipynb"
+        if os.path.exists(notebook_path):
+            try:
+                # Load the notebook
+                with open(notebook_path, "r") as nb_file:
+                    notebook = nbformat.read(nb_file, as_version=4)
+                
+                # Convert to Python code
+                exporter = PythonExporter()
+                source_code, _ = exporter.from_notebook_node(notebook)
 
-# Process conversations
-conversation_data = []
-for idx, conversation in enumerate(conversations, start=1):
-    customer_text = " ".join([entry["customer"] for entry in conversation if "customer" in entry])
-    agent_text = " ".join([entry["agent"] for entry in conversation if "agent" in entry])
-    full_text = customer_text + " " + agent_text
+                # Save the source code to a temp .py file
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".py") as py_file:
+                    py_file.write(source_code.encode("utf-8"))
+                    python_script_path = py_file.name
+                
+                # Modify the Python script to use the uploaded file
+                with open(python_script_path, "r") as script_file:
+                    script_content = script_file.read()
+                modified_content = script_content.replace("input_file_path", f"'{uploaded_file_path}'")
+                with open(python_script_path, "w") as script_file:
+                    script_file.write(modified_content)
 
-    # Sentiment analysis using TextBlob
-    sentiment = TextBlob(full_text).sentiment
-    polarity = sentiment.polarity
-    subjectivity = sentiment.subjectivity
+                # Execute the modified Python script
+                result = subprocess.run(
+                    ["python", python_script_path], 
+                    capture_output=True, text=True
+                )
 
-    # Determine sentiment label
-    if polarity > 0:
-        sentiment_label = "Positive"
-    elif polarity < 0:
-        sentiment_label = "Negative"
+                # Display the output
+                st.text_area("Execution Output", result.stdout or "No output")
+                st.text_area("Execution Errors", result.stderr or "No errors")
+
+            except Exception as e:
+                st.error(f"An error occurred while executing the notebook: {e}")
+        else:
+            st.error("test.ipynb file not found. Please ensure it is in the same directory.")
     else:
-        sentiment_label = "Neutral"
-
-    # Append data
-    conversation_data.append({
-        "Serial Number": idx,
-        "Customer Text": customer_text,
-        "Agent Text": agent_text,
-        "Polarity": polarity,
-        "Subjectivity": subjectivity,
-        "Sentiment": sentiment_label
-    })
-
-# Create a DataFrame
-df = pd.DataFrame(conversation_data)
-
-# Calculate overall satisfaction level
-positive_count = df[df["Sentiment"] == "Positive"].shape[0]
-negative_count = df[df["Sentiment"] == "Negative"].shape[0]
-neutral_count = df[df["Sentiment"] == "Neutral"].shape[0]
-
-# Satisfaction statistics
-total_conversations = len(df)
-satisfaction_level = (positive_count / total_conversations) * 100
-
-# Print EDA summary
-print(f"Total Conversations: {total_conversations}")
-print(f"Positive Conversations: {positive_count}")
-print(f"Negative Conversations: {negative_count}")
-print(f"Neutral Conversations: {neutral_count}")
-print(f"Overall Satisfaction Level: {satisfaction_level:.2f}%")
-
-# Visualization
-plt.figure(figsize=(8, 6))
-df["Sentiment"].value_counts().plot(kind="bar", color=["green", "red", "blue"])
-plt.title("Sentiment Analysis of Conversations")
-plt.xlabel("Sentiment")
-plt.ylabel("Number of Conversations")
-plt.show()
-
-
-
+        st.error("Please upload a file first.")
